@@ -1,0 +1,60 @@
+name: Vigilante Abono Solidario
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: "Modo de ejecución"
+        type: choice
+        options:
+          - normal
+          - prueba
+          - diagnostico
+        default: normal
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vigilante
+  cancel-in-progress: false
+
+jobs:
+  vigilar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Ejecutar el vigilante
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MODO: ${{ github.event.inputs.modo || 'normal' }}
+        run: python vigilante.py --modo "$MODO"
+
+      - name: Guardar estado (para no repetir alertas)
+        if: always()
+        run: |
+          git config user.name "vigilante-bot"
+          git config user.email "vigilante-bot@users.noreply.github.com"
+          git add estado.json || true
+          if git diff --cached --quiet; then
+            echo "Sin cambios de estado."
+          else
+            git commit -m "Actualizar estado del vigilante"
+            git pull --rebase
+            git push
+          fi
